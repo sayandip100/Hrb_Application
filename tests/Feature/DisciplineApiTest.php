@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Identity\PublicId;
 use App\Models\StaffUser;
 use Database\Factories\DisciplineFactory;
 use Database\Factories\RecruitmentFactory;
@@ -31,7 +32,7 @@ class DisciplineApiTest extends StaffAuthTestCase
         $linked = DisciplineFactory::new()->create(['catm_master' => $recruitment->rm_id, 'catm_createby' => $admin->u_id]);
         $unlinked = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id]);
         $this->getJson(self::ENDPOINT)->assertOk()->assertJsonCount(2, 'data')
-            ->assertJsonPath('data.0.id', $unlinked->catm_id)->assertJsonPath('data.0.recruitment', null)
+            ->assertJsonPath('data.0.id', $this->matchesPublicId('discipline', $unlinked->catm_id))->assertJsonPath('data.0.recruitment', null)
             ->assertJsonPath('data.1.recruitment.name', $recruitment->rm_name)->assertJsonPath('meta.total', 2);
     }
 
@@ -44,7 +45,7 @@ class DisciplineApiTest extends StaffAuthTestCase
         ]);
         DisciplineFactory::new()->create(['catm_name' => 'Cardiology', 'catm_master' => $recruitment->rm_id, 'catm_createby' => $admin->u_id]);
         DisciplineFactory::new()->create(['catm_name' => 'Cardiology', 'catm_status' => 0, 'catm_createby' => $admin->u_id]);
-        $this->getJson(self::ENDPOINT.'?search=cardio&status=0&recruitment_id='.$recruitment->rm_id.'&per_page=2&page=2')
+        $this->getJson(self::ENDPOINT.'?search=cardio&status=0&recruitment_id='.$this->publicId('recruitment', $recruitment->rm_id).'&per_page=2&page=2')
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.is_locked', true)
             ->assertJsonPath('meta.total', 3)->assertJsonPath('meta.current_page', 2);
     }
@@ -62,8 +63,8 @@ class DisciplineApiTest extends StaffAuthTestCase
     {
         $admin = $this->signInAsSuperAdmin();
         $record = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id]);
-        $this->getJson(self::ENDPOINT.'/'.$record->catm_id)->assertOk()
-            ->assertJsonPath('data.id', $record->catm_id)->assertJsonPath('data.name', $record->catm_name);
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id))->assertOk()
+            ->assertJsonPath('data.id', $this->matchesPublicId('discipline', $record->catm_id))->assertJsonPath('data.name', $record->catm_name);
     }
 
     public function test_edit_can_update_name_and_recruitment_without_changing_audit_or_lock_status(): void
@@ -72,9 +73,9 @@ class DisciplineApiTest extends StaffAuthTestCase
         $recruitment = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
         $record = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id, 'catm_status' => 0]);
         $before = $record->refresh()->getRawOriginal();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => '  Updated Discipline  ', 'recruitment_id' => $recruitment->rm_id])
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => '  Updated Discipline  ', 'recruitment_id' => $this->publicId('recruitment', $recruitment->rm_id)])
             ->assertOk()->assertJsonPath('message', 'Discipline updated successfully.')
-            ->assertJsonPath('data.name', 'Updated Discipline')->assertJsonPath('data.recruitment.id', $recruitment->rm_id)
+            ->assertJsonPath('data.name', 'Updated Discipline')->assertJsonPath('data.recruitment.id', $this->matchesPublicId('recruitment', $recruitment->rm_id))
             ->assertJsonPath('data.is_locked', true);
         $record->refresh();
         $this->assertSame($before['catm_createby'], $record->catm_createby);
@@ -88,9 +89,9 @@ class DisciplineApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $parent = RecruitmentFactory::new()->locked()->create(['rm_createby' => $admin->u_id]);
         $record = DisciplineFactory::new()->create(['catm_master' => $parent->rm_id, 'catm_createby' => $admin->u_id]);
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => 'New name'])->assertOk()
-            ->assertJsonPath('data.recruitment_id', $parent->rm_id);
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => 'Another name', 'recruitment_id' => $parent->rm_id])->assertOk();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => 'New name'])->assertOk()
+            ->assertJsonPath('data.recruitment_id', $this->matchesPublicId('recruitment', $parent->rm_id));
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => 'Another name', 'recruitment_id' => $this->publicId('recruitment', $parent->rm_id)])->assertOk();
         $this->assertSame($parent->rm_id, $record->refresh()->catm_master);
     }
 
@@ -99,7 +100,7 @@ class DisciplineApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $parent = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
         $record = DisciplineFactory::new()->create(['catm_master' => $parent->rm_id, 'catm_createby' => $admin->u_id]);
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['recruitment_id' => null])->assertOk()
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['recruitment_id' => null])->assertOk()
             ->assertJsonPath('data.recruitment_id', null)->assertJsonPath('data.recruitment', null)
             ->assertJsonPath('data.name', $record->catm_name);
         $this->assertNull($record->refresh()->catm_master);
@@ -111,8 +112,8 @@ class DisciplineApiTest extends StaffAuthTestCase
         $parent = RecruitmentFactory::new()->locked()->create(['rm_createby' => $admin->u_id]);
         $record = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id]);
         $originalName = $record->catm_name;
-        foreach ([$parent->rm_id, 999999] as $id) {
-            $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => 'Should not save', 'recruitment_id' => $id])
+        foreach ([$this->publicId('recruitment', $parent->rm_id), $this->publicId('recruitment', 999999)] as $id) {
+            $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => 'Should not save', 'recruitment_id' => $id])
                 ->assertUnprocessable()->assertJsonValidationErrors('recruitment_id');
         }
         $this->assertSame($originalName, $record->refresh()->catm_name);
@@ -130,7 +131,7 @@ class DisciplineApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id]);
         $before = $record->refresh()->getRawOriginal();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, $payload)->assertUnprocessable()->assertJsonValidationErrors($field);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), $payload)->assertUnprocessable()->assertJsonValidationErrors($field);
         $this->assertSame($before, $record->refresh()->getRawOriginal());
     }
 
@@ -141,7 +142,7 @@ class DisciplineApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id, 'catm_status' => $before]);
         $original = $record->refresh()->getRawOriginal();
-        $url = self::ENDPOINT.'/'.$record->catm_id.'/'.$action;
+        $url = self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/'.$action;
         $this->patchJson($url, ['name' => 'Ignored'])->assertOk()->assertJsonPath('data.status', $after)
             ->assertJsonPath('data.is_locked', $locked);
         $this->patchJson($url)->assertOk()->assertJsonPath('data.status', $after);
@@ -152,10 +153,10 @@ class DisciplineApiTest extends StaffAuthTestCase
     public function test_missing_records_return_404_for_details_edit_lock_and_unlock(): void
     {
         $this->signInAsSuperAdmin();
-        $this->getJson(self::ENDPOINT.'/999999')->assertNotFound();
-        $this->patchJson(self::ENDPOINT.'/999999', ['name' => 'New'])->assertNotFound();
-        $this->patchJson(self::ENDPOINT.'/999999/lock')->assertNotFound();
-        $this->patchJson(self::ENDPOINT.'/999999/unlock')->assertNotFound();
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('discipline', 999999))->assertNotFound();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', 999999), ['name' => 'New'])->assertNotFound();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', 999999).'/lock')->assertNotFound();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', 999999).'/unlock')->assertNotFound();
     }
 
     public function test_discipline_edit_and_lock_actions_require_current_csrf(): void
@@ -163,9 +164,9 @@ class DisciplineApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = DisciplineFactory::new()->create(['catm_createby' => $admin->u_id]);
         $this->app->bind(ValidateCsrfToken::class, EnforceCsrfForTesting::class);
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => 'No CSRF'])->assertStatus(419);
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id.'/lock')->assertStatus(419);
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id.'/unlock')->assertStatus(419);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => 'No CSRF'])->assertStatus(419);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/lock')->assertStatus(419);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/unlock')->assertStatus(419);
         $this->assertSame(1, $record->refresh()->catm_status);
     }
 
@@ -185,15 +186,15 @@ class DisciplineApiTest extends StaffAuthTestCase
         $this->freezeTime();
         $admin = $this->signInAsSuperAdmin();
         $recruitment = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
-        $response = $this->postJson(self::ENDPOINT, ['name' => '  Cardiology  ', 'recruitment_id' => $recruitment->rm_id])
+        $response = $this->postJson(self::ENDPOINT, ['name' => '  Cardiology  ', 'recruitment_id' => $this->publicId('recruitment', $recruitment->rm_id)])
             ->assertCreated()->assertJsonPath('message', 'Discipline added successfully.')
-            ->assertJsonPath('data.name', 'Cardiology')->assertJsonPath('data.recruitment_id', $recruitment->rm_id)
+            ->assertJsonPath('data.name', 'Cardiology')->assertJsonPath('data.recruitment_id', $this->matchesPublicId('recruitment', $recruitment->rm_id))
             ->assertJsonPath('data.recruitment.name', $recruitment->rm_name)
             ->assertJsonPath('data.status', 1)->assertJsonPath('data.is_locked', false)
-            ->assertJsonPath('data.created_by', $admin->u_id)
+            ->assertJsonPath('data.created_by', $this->matchesPublicId('staff', $admin->u_id))
             ->assertJsonPath('data.created_at', now('Asia/Kolkata')->format('Y-m-d H:i:s'));
         $this->assertDatabaseHas('category_master', [
-            'catm_id' => $response->json('data.id'), 'catm_name' => 'Cardiology',
+            'catm_id' => PublicId::decode('discipline', $response->json('data.id')), 'catm_name' => 'Cardiology',
             'catm_master' => $recruitment->rm_id, 'catm_createby' => $admin->u_id, 'catm_status' => 1,
         ]);
     }
@@ -239,7 +240,7 @@ class DisciplineApiTest extends StaffAuthTestCase
     {
         $admin = $this->signInAsSuperAdmin();
         $locked = RecruitmentFactory::new()->locked()->create(['rm_createby' => $admin->u_id]);
-        foreach ([$locked->rm_id, 999999] as $id) {
+        foreach ([$this->publicId('recruitment', $locked->rm_id), $this->publicId('recruitment', 999999)] as $id) {
             $this->postJson(self::ENDPOINT, ['name' => 'Cardiology', 'recruitment_id' => $id])
                 ->assertUnprocessable()->assertJsonPath('errors.recruitment_id.0', 'Select an existing, unlocked recruitment.');
         }
@@ -290,10 +291,10 @@ class DisciplineApiTest extends StaffAuthTestCase
         $record = DisciplineFactory::new()->create();
         $this->postJson(self::ENDPOINT, ['name' => 'Cardiology'])->assertUnauthorized();
         $this->getJson(self::ENDPOINT)->assertUnauthorized();
-        $this->getJson(self::ENDPOINT.'/'.$record->catm_id)->assertUnauthorized();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => 'Unauthorized'])->assertUnauthorized();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id.'/lock')->assertUnauthorized();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id.'/unlock')->assertUnauthorized();
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id))->assertUnauthorized();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => 'Unauthorized'])->assertUnauthorized();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/lock')->assertUnauthorized();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/unlock')->assertUnauthorized();
     }
 
     #[TestWith([2])]
@@ -315,10 +316,10 @@ class DisciplineApiTest extends StaffAuthTestCase
         $this->actingAs($staff, 'staff');
         $this->postJson(self::ENDPOINT, ['name' => 'Cardiology'])->assertForbidden();
         $this->getJson(self::ENDPOINT)->assertForbidden();
-        $this->getJson(self::ENDPOINT.'/'.$record->catm_id)->assertForbidden();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id, ['name' => 'Unauthorized'])->assertForbidden();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id.'/lock')->assertForbidden();
-        $this->patchJson(self::ENDPOINT.'/'.$record->catm_id.'/unlock')->assertForbidden();
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id))->assertForbidden();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id), ['name' => 'Unauthorized'])->assertForbidden();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/lock')->assertForbidden();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('discipline', $record->catm_id).'/unlock')->assertForbidden();
         $this->assertSame($before, $record->refresh()->getRawOriginal());
         $this->assertDatabaseCount('category_master', 1);
     }

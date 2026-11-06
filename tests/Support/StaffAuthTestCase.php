@@ -2,6 +2,8 @@
 
 namespace Tests\Support;
 
+use App\Domain\Identity\PublicId;
+use Closure;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
@@ -40,6 +42,16 @@ abstract class StaffAuthTestCase extends TestCase
     protected function migrateFreshUsing(): array
     {
         return ['--path' => [base_path('tests/Fixtures/Migrations')], '--realpath' => true];
+    }
+
+    protected function publicId(string $type, int $id): string
+    {
+        return PublicId::encode($type, $id);
+    }
+
+    protected function matchesPublicId(string $type, int $expected): Closure
+    {
+        return fn (mixed $value): bool => is_string($value) && PublicId::decode($type, $value) === $expected;
     }
 
     protected function browser(string $method, string $path, array $data = []): TestResponse

@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Http\Controllers\Api\V1;
+
+use App\Domain\Identity\PublicId;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListDisciplinesRequest;
 use App\Http\Requests\StoreDisciplineRequest;
@@ -13,7 +15,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-
 class DisciplineController extends Controller
 {
     public function index(ListDisciplinesRequest $request): JsonResponse
@@ -24,7 +25,7 @@ class DisciplineController extends Controller
             $query->where('catm_status', (int) $data['status']);
         }
         if (isset($data['recruitment_id'])) {
-            $query->where('catm_master', (int) $data['recruitment_id']);
+            $query->where('catm_master', PublicId::decode('recruitment', $data['recruitment_id']));
         }
         if (filled($data['search'] ?? null)) {
             $search = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $data['search']);
@@ -46,7 +47,7 @@ class DisciplineController extends Controller
     {
         $data = $request->validated();
         $discipline = DB::transaction(function () use ($data): Discipline {
-            $recruitment = $this->activeRecruitment(isset($data['recruitment_id']) ? (int) $data['recruitment_id'] : null);
+            $recruitment = $this->activeRecruitment(isset($data['recruitment_id']) ? PublicId::decode('recruitment', $data['recruitment_id']) : null);
             $discipline = new Discipline;
             $discipline->catm_name = trim($data['name']);
             $discipline->catm_master = $recruitment?->getKey();
@@ -73,7 +74,7 @@ class DisciplineController extends Controller
                 $record->catm_name = trim($data['name']);
             }
             if (array_key_exists('recruitment_id', $data)) {
-                $recruitmentId = $data['recruitment_id'] === null ? null : (int) $data['recruitment_id'];
+                $recruitmentId = $data['recruitment_id'] === null ? null : PublicId::decode('recruitment', $data['recruitment_id']);
                 if ($recruitmentId !== $record->catm_master) {
                     $record->catm_master = $this->activeRecruitment($recruitmentId)?->getKey();
                 }

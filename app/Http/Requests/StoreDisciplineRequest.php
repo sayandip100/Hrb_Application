@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\EncryptedRecruitmentId;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreDisciplineRequest extends FormRequest
@@ -11,12 +12,11 @@ class StoreDisciplineRequest extends FormRequest
         return true;
     }
 
-    
     public function rules(): array
     {
         return [
             'name' => ['required', 'string', 'max:150'],
-            'recruitment_id' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:2147483647'],
+            'recruitment_id' => ['sometimes', 'nullable', 'bail', 'string', 'max:1024', new EncryptedRecruitmentId],
             'id' => ['prohibited'],
             'status' => ['prohibited'],
             'created_by' => ['prohibited'],

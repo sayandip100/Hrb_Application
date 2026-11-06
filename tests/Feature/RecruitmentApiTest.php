@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Domain\Identity\OtpSender;
+use App\Domain\Identity\PublicId;
 use App\Models\StaffUser;
 use Database\Factories\RecruitmentFactory;
 use Database\Factories\StaffRoleFactory;
@@ -46,7 +47,7 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $afterLoginCookie = collect($csrf->headers->getCookies())->first(fn ($cookie) => $cookie->getName() === 'XSRF-TOKEN');
         $this->withHeader('X-XSRF-TOKEN', rawurldecode($afterLoginCookie->getValue()));
         $this->browser('POST', self::PREFIX, ['name' => 'Medical Officer'])
-            ->assertCreated()->assertJsonPath('data.created_by', $staff->u_id);
+            ->assertCreated()->assertJsonPath('data.created_by', $this->matchesPublicId('staff', $staff->u_id));
         $this->assertDatabaseHas('recruitment_master_tab', ['rm_name' => 'Medical Officer', 'rm_createby' => $staff->u_id]);
     }
 
@@ -56,8 +57,8 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $locked = RecruitmentFactory::new()->locked()->create(['rm_name' => 'Zoology', 'rm_createby' => $admin->u_id]);
         $active = RecruitmentFactory::new()->create(['rm_name' => 'Anatomy', 'rm_createby' => $admin->u_id]);
         $this->getJson(self::PREFIX)->assertOk()->assertJsonCount(2, 'data')
-            ->assertJsonPath('data.0.id', $active->rm_id)->assertJsonPath('data.0.is_locked', false)
-            ->assertJsonPath('data.1.id', $locked->rm_id)->assertJsonPath('data.1.is_locked', true)
+            ->assertJsonPath('data.0.id', $this->matchesPublicId('recruitment', $active->rm_id))->assertJsonPath('data.0.is_locked', false)
+            ->assertJsonPath('data.1.id', $this->matchesPublicId('recruitment', $locked->rm_id))->assertJsonPath('data.1.is_locked', true)
             ->assertJsonPath('meta.total', 2)->assertHeader('Cache-Control', 'no-store, private');
     }
 
@@ -91,10 +92,10 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $response = $this->postJson(self::PREFIX, ['name' => '  Medical Officer  '])
             ->assertCreated()->assertJsonPath('message', 'Recruitment added successfully.')
             ->assertJsonPath('data.name', 'Medical Officer')->assertJsonPath('data.status', 1)
-            ->assertJsonPath('data.is_locked', false)->assertJsonPath('data.created_by', $admin->u_id)
+            ->assertJsonPath('data.is_locked', false)->assertJsonPath('data.created_by', $this->matchesPublicId('staff', $admin->u_id))
             ->assertJsonPath('data.created_at', now('Asia/Kolkata')->format('Y-m-d H:i:s'));
         $this->assertDatabaseHas('recruitment_master_tab', [
-            'rm_id' => $response->json('data.id'), 'rm_name' => 'Medical Officer',
+            'rm_id' => PublicId::decode('recruitment', $response->json('data.id')), 'rm_name' => 'Medical Officer',
             'rm_createby' => $admin->u_id, 'rm_status' => 1,
         ]);
     }
@@ -153,7 +154,7 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = RecruitmentFactory::new()->create(['rm_status' => $before, 'rm_createby' => $admin->u_id]);
         $original = $record->getRawOriginal();
-        $url = self::PREFIX.'/'.$record->rm_id.'/'.$operation;
+        $url = self::PREFIX.'/'.$this->publicId('recruitment', $record->rm_id).'/'.$operation;
         $this->patchJson($url, ['name' => 'Changed', 'rm_createby' => 999])
             ->assertOk()->assertJsonPath('message', $message)->assertJsonPath('data.status', $after)
             ->assertJsonPath('data.is_locked', $locked);
@@ -168,8 +169,8 @@ class RecruitmentApiTest extends StaffAuthTestCase
     public function test_unknown_recruitment_returns_404_for_lock_and_unlock(): void
     {
         $this->signInAsSuperAdmin();
-        $this->patchJson(self::PREFIX.'/999999/lock')->assertNotFound();
-        $this->patchJson(self::PREFIX.'/999999/unlock')->assertNotFound();
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', 999999).'/lock')->assertNotFound();
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', 999999).'/unlock')->assertNotFound();
     }
 
     public function test_guest_cannot_list_create_or_change_recruitments(): void
@@ -177,8 +178,8 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $record = RecruitmentFactory::new()->create();
         $this->getJson(self::PREFIX)->assertUnauthorized();
         $this->postJson(self::PREFIX, ['name' => 'Unauthorized'])->assertUnauthorized();
-        $this->patchJson(self::PREFIX.'/'.$record->rm_id.'/lock')->assertUnauthorized();
-        $this->patchJson(self::PREFIX.'/'.$record->rm_id.'/unlock')->assertUnauthorized();
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', $record->rm_id).'/lock')->assertUnauthorized();
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', $record->rm_id).'/unlock')->assertUnauthorized();
         $this->assertDatabaseCount('recruitment_master_tab', 1);
         $this->assertSame(1, $record->refresh()->rm_status);
     }
@@ -201,8 +202,8 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $this->actingAs($staff, 'staff');
         $this->getJson(self::PREFIX)->assertForbidden();
         $this->postJson(self::PREFIX, ['name' => 'Unauthorized'])->assertForbidden();
-        $this->patchJson(self::PREFIX.'/'.$record->rm_id.'/lock')->assertForbidden();
-        $this->patchJson(self::PREFIX.'/'.$record->rm_id.'/unlock')->assertForbidden();
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', $record->rm_id).'/lock')->assertForbidden();
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', $record->rm_id).'/unlock')->assertForbidden();
         $this->assertDatabaseCount('recruitment_master_tab', 1);
         $this->assertSame(1, $record->refresh()->rm_status);
     }
@@ -229,7 +230,7 @@ class RecruitmentApiTest extends StaffAuthTestCase
         $record = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
         $this->app->bind(ValidateCsrfToken::class, EnforceCsrfForTesting::class);
         $this->postJson(self::PREFIX, ['name' => 'Missing CSRF'])->assertStatus(419);
-        $this->patchJson(self::PREFIX.'/'.$record->rm_id.'/lock')->assertStatus(419);
+        $this->patchJson(self::PREFIX.'/'.$this->publicId('recruitment', $record->rm_id).'/lock')->assertStatus(419);
         $this->assertDatabaseCount('recruitment_master_tab', 1);
         $this->assertSame(1, $record->refresh()->rm_status);
     }

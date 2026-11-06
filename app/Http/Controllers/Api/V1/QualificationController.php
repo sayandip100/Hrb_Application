@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Identity\PublicId;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListQualificationsRequest;
 use App\Http\Requests\StoreQualificationRequest;
@@ -24,7 +25,7 @@ class QualificationController extends Controller
             $query->where('qm_status', (int) $data['status']);
         }
         if (isset($data['recruitment_id'])) {
-            $query->where('qm_r_master', (int) $data['recruitment_id']);
+            $query->where('qm_r_master', PublicId::decode('recruitment', $data['recruitment_id']));
         }
         if (filled($data['search'] ?? null)) {
             $search = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $data['search']);
@@ -48,7 +49,7 @@ class QualificationController extends Controller
         $qualification = DB::transaction(function () use ($data): Qualification {
             $this->lockQualificationWrites();
             $this->assertUniqueName(trim($data['name']));
-            $recruitment = $this->activeRecruitment(isset($data['recruitment_id']) ? (int) $data['recruitment_id'] : null);
+            $recruitment = $this->activeRecruitment(isset($data['recruitment_id']) ? PublicId::decode('recruitment', $data['recruitment_id']) : null);
             $qualification = new Qualification;
             $qualification->qm_name = trim($data['name']);
             $qualification->qm_r_master = $recruitment?->getKey();
@@ -77,7 +78,7 @@ class QualificationController extends Controller
                 $record->qm_name = trim($data['name']);
             }
             if (array_key_exists('recruitment_id', $data)) {
-                $recruitmentId = $data['recruitment_id'] === null ? null : (int) $data['recruitment_id'];
+                $recruitmentId = $data['recruitment_id'] === null ? null : PublicId::decode('recruitment', $data['recruitment_id']);
                 if ($recruitmentId !== $record->qm_r_master) {
                     $record->qm_r_master = $this->activeRecruitment($recruitmentId)?->getKey();
                 }

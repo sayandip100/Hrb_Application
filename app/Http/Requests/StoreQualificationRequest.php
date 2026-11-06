@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\EncryptedRecruitmentId;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreQualificationRequest extends FormRequest
@@ -15,7 +16,7 @@ class StoreQualificationRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:850'],
-            'recruitment_id' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:2147483647'],
+            'recruitment_id' => ['sometimes', 'nullable', 'bail', 'string', 'max:1024', new EncryptedRecruitmentId],
             'id' => ['prohibited'],
             'status' => ['prohibited'],
             'created_by' => ['prohibited'],

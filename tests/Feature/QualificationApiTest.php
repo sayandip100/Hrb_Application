@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Identity\PublicId;
 use App\Models\StaffUser;
 use Database\Factories\QualificationFactory;
 use Database\Factories\RecruitmentFactory;
@@ -31,7 +32,7 @@ class QualificationApiTest extends StaffAuthTestCase
         $linked = QualificationFactory::new()->create(['qm_r_master' => $recruitment->rm_id, 'qm_createby' => $admin->u_id]);
         $unlinked = QualificationFactory::new()->create(['qm_createby' => $admin->u_id]);
         $this->getJson(self::ENDPOINT)->assertOk()->assertJsonCount(2, 'data')
-            ->assertJsonPath('data.0.id', $unlinked->qm_id)->assertJsonPath('data.0.recruitment', null)
+            ->assertJsonPath('data.0.id', $this->matchesPublicId('qualification', $unlinked->qm_id))->assertJsonPath('data.0.recruitment', null)
             ->assertJsonPath('data.1.recruitment.name', $recruitment->rm_name)->assertJsonPath('meta.total', 2);
     }
 
@@ -44,7 +45,7 @@ class QualificationApiTest extends StaffAuthTestCase
         ]);
         QualificationFactory::new()->create(['qm_name' => 'MBBS', 'qm_r_master' => $recruitment->rm_id, 'qm_createby' => $admin->u_id]);
         QualificationFactory::new()->create(['qm_name' => 'MBBS', 'qm_status' => 0, 'qm_createby' => $admin->u_id]);
-        $this->getJson(self::ENDPOINT.'?search=mbbs&status=0&recruitment_id='.$recruitment->rm_id.'&per_page=2&page=2')
+        $this->getJson(self::ENDPOINT.'?search=mbbs&status=0&recruitment_id='.$this->publicId('recruitment', $recruitment->rm_id).'&per_page=2&page=2')
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.is_locked', true)
             ->assertJsonPath('meta.total', 3)->assertJsonPath('meta.current_page', 2);
     }
@@ -62,8 +63,8 @@ class QualificationApiTest extends StaffAuthTestCase
     {
         $admin = $this->signInAsSuperAdmin();
         $record = QualificationFactory::new()->create(['qm_createby' => $admin->u_id]);
-        $this->getJson(self::ENDPOINT.'/'.$record->qm_id)->assertOk()
-            ->assertJsonPath('data.id', $record->qm_id)->assertJsonPath('data.name', $record->qm_name);
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id))->assertOk()
+            ->assertJsonPath('data.id', $this->matchesPublicId('qualification', $record->qm_id))->assertJsonPath('data.name', $record->qm_name);
     }
 
     public function test_edit_can_update_name_and_recruitment_without_changing_audit_or_lock_status(): void
@@ -72,9 +73,9 @@ class QualificationApiTest extends StaffAuthTestCase
         $recruitment = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
         $record = QualificationFactory::new()->create(['qm_createby' => $admin->u_id, 'qm_status' => 0]);
         $before = $record->refresh()->getRawOriginal();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => '  Updated Qualification  ', 'recruitment_id' => $recruitment->rm_id])
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => '  Updated Qualification  ', 'recruitment_id' => $this->publicId('recruitment', $recruitment->rm_id)])
             ->assertOk()->assertJsonPath('message', 'Qualification updated successfully.')
-            ->assertJsonPath('data.name', 'Updated Qualification')->assertJsonPath('data.recruitment.id', $recruitment->rm_id)
+            ->assertJsonPath('data.name', 'Updated Qualification')->assertJsonPath('data.recruitment.id', $this->matchesPublicId('recruitment', $recruitment->rm_id))
             ->assertJsonPath('data.is_locked', true);
         $record->refresh();
         $this->assertSame($before['qm_createby'], $record->qm_createby);
@@ -88,9 +89,9 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $parent = RecruitmentFactory::new()->locked()->create(['rm_createby' => $admin->u_id]);
         $record = QualificationFactory::new()->create(['qm_r_master' => $parent->rm_id, 'qm_createby' => $admin->u_id]);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'New name'])->assertOk()
-            ->assertJsonPath('data.recruitment_id', $parent->rm_id);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'Another name', 'recruitment_id' => $parent->rm_id])->assertOk();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'New name'])->assertOk()
+            ->assertJsonPath('data.recruitment_id', $this->matchesPublicId('recruitment', $parent->rm_id));
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'Another name', 'recruitment_id' => $this->publicId('recruitment', $parent->rm_id)])->assertOk();
         $this->assertSame($parent->rm_id, $record->refresh()->qm_r_master);
     }
 
@@ -99,7 +100,7 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $parent = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
         $record = QualificationFactory::new()->create(['qm_r_master' => $parent->rm_id, 'qm_createby' => $admin->u_id]);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['recruitment_id' => null])->assertOk()
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['recruitment_id' => null])->assertOk()
             ->assertJsonPath('data.recruitment_id', null)->assertJsonPath('data.recruitment', null)
             ->assertJsonPath('data.name', $record->qm_name);
         $this->assertNull($record->refresh()->qm_r_master);
@@ -111,8 +112,8 @@ class QualificationApiTest extends StaffAuthTestCase
         $parent = RecruitmentFactory::new()->locked()->create(['rm_createby' => $admin->u_id]);
         $record = QualificationFactory::new()->create(['qm_createby' => $admin->u_id]);
         $originalName = $record->qm_name;
-        foreach ([$parent->rm_id, 999999] as $id) {
-            $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'Should not save', 'recruitment_id' => $id])
+        foreach ([$this->publicId('recruitment', $parent->rm_id), $this->publicId('recruitment', 999999)] as $id) {
+            $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'Should not save', 'recruitment_id' => $id])
                 ->assertUnprocessable()->assertJsonValidationErrors('recruitment_id');
         }
         $this->assertSame($originalName, $record->refresh()->qm_name);
@@ -130,7 +131,7 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = QualificationFactory::new()->create(['qm_createby' => $admin->u_id]);
         $before = $record->refresh()->getRawOriginal();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, $payload)->assertUnprocessable()->assertJsonValidationErrors($field);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), $payload)->assertUnprocessable()->assertJsonValidationErrors($field);
         $this->assertSame($before, $record->refresh()->getRawOriginal());
     }
 
@@ -141,7 +142,7 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = QualificationFactory::new()->create(['qm_createby' => $admin->u_id, 'qm_status' => $before]);
         $original = $record->refresh()->getRawOriginal();
-        $url = self::ENDPOINT.'/'.$record->qm_id.'/'.$action;
+        $url = self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/'.$action;
         $this->patchJson($url, ['name' => 'Ignored'])->assertOk()->assertJsonPath('data.status', $after)
             ->assertJsonPath('data.is_locked', $locked);
         $this->patchJson($url)->assertOk()->assertJsonPath('data.status', $after);
@@ -152,10 +153,10 @@ class QualificationApiTest extends StaffAuthTestCase
     public function test_missing_records_return_404_for_details_edit_lock_and_unlock(): void
     {
         $this->signInAsSuperAdmin();
-        $this->getJson(self::ENDPOINT.'/999999')->assertNotFound();
-        $this->patchJson(self::ENDPOINT.'/999999', ['name' => 'New'])->assertNotFound();
-        $this->patchJson(self::ENDPOINT.'/999999/lock')->assertNotFound();
-        $this->patchJson(self::ENDPOINT.'/999999/unlock')->assertNotFound();
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('qualification', 999999))->assertNotFound();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', 999999), ['name' => 'New'])->assertNotFound();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', 999999).'/lock')->assertNotFound();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', 999999).'/unlock')->assertNotFound();
     }
 
     public function test_qualification_edit_and_lock_actions_require_current_csrf(): void
@@ -163,9 +164,9 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = QualificationFactory::new()->create(['qm_createby' => $admin->u_id]);
         $this->app->bind(ValidateCsrfToken::class, EnforceCsrfForTesting::class);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'No CSRF'])->assertStatus(419);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id.'/lock')->assertStatus(419);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id.'/unlock')->assertStatus(419);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'No CSRF'])->assertStatus(419);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/lock')->assertStatus(419);
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/unlock')->assertStatus(419);
         $this->assertSame(1, $record->refresh()->qm_status);
     }
 
@@ -185,15 +186,15 @@ class QualificationApiTest extends StaffAuthTestCase
         $this->freezeTime();
         $admin = $this->signInAsSuperAdmin();
         $recruitment = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
-        $response = $this->postJson(self::ENDPOINT, ['name' => '  MBBS  ', 'recruitment_id' => $recruitment->rm_id])
+        $response = $this->postJson(self::ENDPOINT, ['name' => '  MBBS  ', 'recruitment_id' => $this->publicId('recruitment', $recruitment->rm_id)])
             ->assertCreated()->assertJsonPath('message', 'Qualification added successfully.')
-            ->assertJsonPath('data.name', 'MBBS')->assertJsonPath('data.recruitment_id', $recruitment->rm_id)
+            ->assertJsonPath('data.name', 'MBBS')->assertJsonPath('data.recruitment_id', $this->matchesPublicId('recruitment', $recruitment->rm_id))
             ->assertJsonPath('data.recruitment.name', $recruitment->rm_name)
             ->assertJsonPath('data.status', 1)->assertJsonPath('data.is_locked', false)
-            ->assertJsonPath('data.created_by', $admin->u_id)
+            ->assertJsonPath('data.created_by', $this->matchesPublicId('staff', $admin->u_id))
             ->assertJsonPath('data.created_at', now('Asia/Kolkata')->format('Y-m-d H:i:s'));
         $this->assertDatabaseHas('qualification_master', [
-            'qm_id' => $response->json('data.id'), 'qm_name' => 'MBBS',
+            'qm_id' => PublicId::decode('qualification', $response->json('data.id')), 'qm_name' => 'MBBS',
             'qm_r_master' => $recruitment->rm_id, 'qm_createby' => $admin->u_id, 'qm_status' => 1,
         ]);
     }
@@ -239,7 +240,7 @@ class QualificationApiTest extends StaffAuthTestCase
     {
         $admin = $this->signInAsSuperAdmin();
         $locked = RecruitmentFactory::new()->locked()->create(['rm_createby' => $admin->u_id]);
-        foreach ([$locked->rm_id, 999999] as $id) {
+        foreach ([$this->publicId('recruitment', $locked->rm_id), $this->publicId('recruitment', 999999)] as $id) {
             $this->postJson(self::ENDPOINT, ['name' => 'MBBS', 'recruitment_id' => $id])
                 ->assertUnprocessable()->assertJsonPath('errors.recruitment_id.0', 'Select an existing, unlocked recruitment.');
         }
@@ -267,7 +268,7 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $recruitment = RecruitmentFactory::new()->create(['rm_createby' => $admin->u_id]);
         QualificationFactory::new()->create(['qm_name' => ' MBBS ', 'qm_status' => $status, 'qm_createby' => $admin->u_id]);
-        $this->postJson(self::ENDPOINT, ['name' => 'mbbs', 'recruitment_id' => $recruitment->rm_id])
+        $this->postJson(self::ENDPOINT, ['name' => 'mbbs', 'recruitment_id' => $this->publicId('recruitment', $recruitment->rm_id)])
             ->assertUnprocessable()->assertJsonPath('errors.name.0', 'A qualification with this name already exists.');
         $this->assertDatabaseCount('qualification_master', 1);
     }
@@ -277,8 +278,8 @@ class QualificationApiTest extends StaffAuthTestCase
         $admin = $this->signInAsSuperAdmin();
         $record = QualificationFactory::new()->create(['qm_name' => 'MBBS', 'qm_createby' => $admin->u_id]);
         QualificationFactory::new()->create(['qm_name' => 'BDS', 'qm_createby' => $admin->u_id]);
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'MBBS'])->assertOk();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => ' bds '])
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'MBBS'])->assertOk();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => ' bds '])
             ->assertUnprocessable()->assertJsonValidationErrors('name');
         $this->assertSame('MBBS', $record->refresh()->qm_name);
         $this->assertDatabaseCount('qualification_master', 2);
@@ -306,10 +307,10 @@ class QualificationApiTest extends StaffAuthTestCase
         $record = QualificationFactory::new()->create();
         $this->postJson(self::ENDPOINT, ['name' => 'MBBS'])->assertUnauthorized();
         $this->getJson(self::ENDPOINT)->assertUnauthorized();
-        $this->getJson(self::ENDPOINT.'/'.$record->qm_id)->assertUnauthorized();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'Unauthorized'])->assertUnauthorized();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id.'/lock')->assertUnauthorized();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id.'/unlock')->assertUnauthorized();
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id))->assertUnauthorized();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'Unauthorized'])->assertUnauthorized();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/lock')->assertUnauthorized();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/unlock')->assertUnauthorized();
     }
 
     #[TestWith([2])]
@@ -331,10 +332,10 @@ class QualificationApiTest extends StaffAuthTestCase
         $this->actingAs($staff, 'staff');
         $this->postJson(self::ENDPOINT, ['name' => 'MBBS'])->assertForbidden();
         $this->getJson(self::ENDPOINT)->assertForbidden();
-        $this->getJson(self::ENDPOINT.'/'.$record->qm_id)->assertForbidden();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id, ['name' => 'Unauthorized'])->assertForbidden();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id.'/lock')->assertForbidden();
-        $this->patchJson(self::ENDPOINT.'/'.$record->qm_id.'/unlock')->assertForbidden();
+        $this->getJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id))->assertForbidden();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id), ['name' => 'Unauthorized'])->assertForbidden();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/lock')->assertForbidden();
+        $this->patchJson(self::ENDPOINT.'/'.$this->publicId('qualification', $record->qm_id).'/unlock')->assertForbidden();
         $this->assertSame($before, $record->refresh()->getRawOriginal());
         $this->assertDatabaseCount('qualification_master', 1);
     }
