@@ -1,7 +1,8 @@
 <?php
 
-use App\Models\User;
+use App\Models\CandidateUser;
 use App\Models\StaffUser;
+use App\Models\User;
 
 return [
 
@@ -39,15 +40,16 @@ return [
     */
 
     'guards' => [
+        'candidate' => ['driver' => 'session', 'provider' => 'candidates'],
         'web' => [
             'driver' => 'session',
             'provider' => 'users',
         ],
 
-         'staff' => [
-        'driver' => 'session',
-        'provider' => 'staff_users',
-    ],
+        'staff' => [
+            'driver' => 'session',
+            'provider' => 'staff_users',
+        ],
     ],
 
     /*
@@ -68,13 +70,13 @@ return [
     */
 
     'providers' => [
+        'candidates' => ['driver' => 'eloquent', 'model' => CandidateUser::class],
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
         ],
 
-
-                'staff_users' => [
+        'staff_users' => [
             'driver' => 'eloquent',
             'model' => StaffUser::class,
         ],

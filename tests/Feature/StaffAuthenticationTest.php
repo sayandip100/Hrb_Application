@@ -376,4 +376,51 @@ class StaffAuthenticationTest extends StaffAuthTestCase
         $this->verify($challenge, '123456')->assertUnprocessable();
         $this->assertSame([], $sender->messages);
     }
+
+    public function test_local_response_mode_skips_unconfigured_email_and_returned_code_logs_in(): void
+    {
+        $this->app['env'] = 'local';
+        $this->withSession(['_token' => 'staff-otp-test-token'])->withHeader('X-CSRF-TOKEN', 'staff-otp-test-token');
+        config(['staff_auth.otp_in_response' => true]);
+        Mail::fake();
+        $staff = StaffUserFactory::new()->create();
+        $response = $this->issue($staff)->assertAccepted()->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertMatchesRegularExpression('/^[0-9]{6}$/', $response->json('data.otp'));
+        Mail::assertNothingSent();
+        $this->verify($response->json('data.challenge_id'), $response->json('data.otp'))->assertOk();
+        $this->assertAuthenticatedAs($staff, 'staff');
+    }
+
+    public function test_response_mode_does_not_issue_a_usable_otp_for_unknown_or_disabled_accounts(): void
+    {
+        $this->app['env'] = 'local';
+        $this->withSession(['_token' => 'staff-otp-test-token'])->withHeader('X-CSRF-TOKEN', 'staff-otp-test-token');
+        config(['staff_auth.otp_in_response' => true]);
+        $sender = $this->fakeEmail();
+        $staff = StaffUserFactory::new()->inactive()->create();
+        $this->issue($staff)->assertAccepted()->assertJsonMissingPath('data.otp');
+        $this->browser('POST', self::PREFIX.'/request-otp', ['mobile' => '9999999999', 'role_id' => 2])
+            ->assertAccepted()->assertJsonMissingPath('data.otp');
+        $this->assertSame([], $sender->messages);
+    }
+
+    public function test_production_ignores_response_mode_and_sends_email_without_exposing_code(): void
+    {
+        $this->app['env'] = 'production';
+        $this->withSession(['_token' => 'staff-otp-test-token'])->withHeader('X-CSRF-TOKEN', 'staff-otp-test-token');
+        config(['staff_auth.otp_in_response' => true]);
+        $sender = $this->fakeEmail();
+        $this->issue(StaffUserFactory::new()->create())->assertAccepted()->assertJsonMissingPath('data.otp');
+        $this->assertCount(1, $sender->messages);
+    }
+
+    public function test_local_mode_can_be_switched_back_to_email_delivery(): void
+    {
+        $this->app['env'] = 'local';
+        $this->withSession(['_token' => 'staff-otp-test-token'])->withHeader('X-CSRF-TOKEN', 'staff-otp-test-token');
+        config(['staff_auth.otp_in_response' => false]);
+        $sender = $this->fakeEmail();
+        $this->issue(StaffUserFactory::new()->create())->assertAccepted()->assertJsonMissingPath('data.otp');
+        $this->assertCount(1, $sender->messages);
+    }
 }

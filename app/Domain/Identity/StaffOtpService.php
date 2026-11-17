@@ -16,10 +16,11 @@ class StaffOtpService
 {
     public function __construct(private OtpSender $sender, private StaffAccess $access) {}
 
-    /** @return array{challenge_id: string, expires_in: int, message: string} */
+    /** @return array{challenge_id: string, expires_in: int, message: string, otp?: string} */
     public function issue(string $mobile, int $roleId, string $sessionId, string $ip): array
     {
-        if (! $this->sender->isAvailable()) {
+        $localResponse = app()->environment('local') && (bool) config('staff_auth.otp_in_response');
+        if (! $localResponse && ! $this->sender->isAvailable()) {
             throw new HttpException(503, 'Staff OTP email delivery is not configured yet.');
         }
 
@@ -57,7 +58,7 @@ class StaffOtpService
             $this->cache()->put($this->key('current:'.$identity), $challengeId, $ttl);
         });
 
-        if ($account) {
+        if ($account && ! $localResponse) {
             try {
                 $this->sender->sendOtp($account->email, $otp);
             } catch (Throwable) {
@@ -71,11 +72,17 @@ class StaffOtpService
             }
         }
 
-        return [
+        $response = [
             'challenge_id' => $challengeId,
             'expires_in' => $ttl,
             'message' => 'If the account is eligible, a verification code will be sent.',
         ];
+        if ($localResponse && $account) {
+            $response['otp'] = $otp;
+            $response['message'] = 'Development OTP generated. Email delivery skipped.';
+        }
+
+        return $response;
     }
 
     public function verify(string $challengeId, string $otp, string $sessionId, string $ip): StaffUser

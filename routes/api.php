@@ -5,15 +5,21 @@ use App\Http\Controllers\Api\V1\AdvertisementListController;
 use App\Http\Controllers\Api\V1\AdvertisementResubmissionController;
 use App\Http\Controllers\Api\V1\AgeRelaxationController;
 use App\Http\Controllers\Api\V1\BlockMunicipalityController;
+use App\Http\Controllers\Api\V1\CandidateApplicationController;
+use App\Http\Controllers\Api\V1\CandidateAuthController;
 use App\Http\Controllers\Api\V1\CasteCommunityController;
 use App\Http\Controllers\Api\V1\CasteIssuingAuthorityController;
 use App\Http\Controllers\Api\V1\DisciplineController;
 use App\Http\Controllers\Api\V1\ExperienceController;
 use App\Http\Controllers\Api\V1\PoliceStationController;
+use App\Http\Controllers\Api\V1\PublicAdvertisementController;
 use App\Http\Controllers\Api\V1\QualificationController;
 use App\Http\Controllers\Api\V1\RecruitmentController;
 use App\Http\Controllers\Api\V1\StaffAuthController;
+use App\Http\Controllers\Api\V1\StaffCandidateActionController;
+use App\Http\Controllers\Api\V1\StaffCandidateApplicationController;
 use App\Http\Controllers\Api\V1\SubdivisionController;
+use App\Http\Middleware\EnsureActiveCandidate;
 use App\Http\Middleware\EnsureActiveStaff;
 use App\Http\Middleware\EnsureStaffBrowserSession;
 use App\Http\Middleware\RequireStaffRole;
@@ -185,3 +191,61 @@ Route::prefix('v1/advertisement-resubmissions')->name('advertisement-resubmissio
         Route::get('/{resubmission}', [$controller, 'show'])->name('show');
         Route::post('/{resubmission}/process', [$controller, 'process'])->name('process');
     });
+
+Route::prefix('v1/public/advertisements')->name('public.advertisements.')->middleware('throttle:60,1')->group(function (): void {
+    Route::get('/', [PublicAdvertisementController::class, 'index'])->name('index');
+    Route::get('/{advertisement}', [PublicAdvertisementController::class, 'show'])->where('advertisement', '[A-Za-z0-9_-]{1,1024}')->name('show');
+});
+
+Route::prefix('v1/candidate/auth')->name('candidate.auth.')->middleware([EnsureStaffBrowserSession::class, 'throttle:20,1'])->group(function (): void {
+    $controller = CandidateAuthController::class;
+    Route::post('/request-registration-otp', [$controller, 'requestOtp'])->name('request-otp');
+    Route::post('/register', [$controller, 'register'])->name('register');
+    Route::post('/login', [$controller, 'login'])->name('login');
+    Route::get('/me', [$controller, 'me'])->middleware(['auth:candidate', EnsureActiveCandidate::class])->name('me');
+    Route::post('/logout', [$controller, 'logout'])->middleware('auth:candidate')->name('logout');
+});
+
+Route::prefix('v1/candidate/application')->name('candidate.application.')
+    ->middleware([EnsureStaffBrowserSession::class, 'auth:candidate', EnsureActiveCandidate::class])
+    ->group(function (): void {
+        $controller = CandidateApplicationController::class;
+        Route::get('/', [$controller, 'show'])->name('show');
+        Route::get('/form-options', [$controller, 'options'])->name('options');
+        Route::get('/locations', [$controller, 'locations'])->name('locations');
+        Route::get('/preview', [$controller, 'preview'])->name('preview');
+        Route::get('/fee-summary', [$controller, 'preview'])->name('fee');
+        Route::get('/status', [$controller, 'status'])->name('status');
+        Route::get('/receipt', [$controller, 'receipt'])->name('receipt');
+        Route::post('/submit', [$controller, 'submit'])->middleware('throttle:20,1')->name('submit');
+        Route::post('/payments', [$controller, 'payments'])->name('payments');
+        Route::post('/documents', [$controller, 'upload'])->middleware('throttle:30,1')->name('documents.store');
+        Route::get('/documents/{document}', [$controller, 'download'])->where('document', '[A-Za-z0-9_-]{1,1024}')->name('documents.show');
+        Route::delete('/documents/{document}', [$controller, 'destroyDocument'])->where('document', '[A-Za-z0-9_-]{1,1024}')->name('documents.destroy');
+        Route::patch('/{section}', [$controller, 'save'])->where('section', 'post|personal-details|category-relaxations|qualifications|experiences')->name('save');
+    });
+
+Route::prefix('v1/candidates/applications')->name('candidates.applications.')
+    ->middleware([EnsureStaffBrowserSession::class, 'auth:sanctum', EnsureActiveStaff::class, RequireStaffRole::class.':1'])
+    ->group(function (): void {
+        Route::get('/form-options', [StaffCandidateApplicationController::class, 'formOptions'])->name('form-options');
+        Route::get('/', [StaffCandidateApplicationController::class, 'index'])->name('index');
+        Route::prefix('{candidate}')->where(['candidate' => '[A-Za-z0-9_-]{1,1024}'])->group(function (): void {
+            $controller = StaffCandidateActionController::class;
+            Route::get('/', [$controller, 'show'])->name('show');
+            Route::get('/documents/{document}', [$controller, 'document'])->where('document', '[A-Za-z0-9_-]{1,1024}')->name('document');
+            Route::get('/sections', [$controller, 'sections'])->name('sections');
+            Route::get('/checkings', [$controller, 'checks'])->name('checkings');
+            Route::get('/checking-history', [$controller, 'history'])->name('checking-history');
+            Route::get('/marks', [$controller, 'marks'])->name('marks');
+            Route::get('/swap-options', [$controller, 'swapOptions'])->name('swap-options');
+            Route::get('/audit', [$controller, 'audit'])->name('audit');
+            Route::post('/profile', [$controller, 'update'])->name('profile');
+            Route::patch('/dob', [$controller, 'update'])->name('dob');
+            Route::patch('/swaps', [$controller, 'update'])->name('swaps');
+            Route::post('/reject', [$controller, 'update'])->name('reject');
+        });
+
+    });
+
+
