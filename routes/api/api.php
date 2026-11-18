@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\StaffAuthController;
+use App\Http\Middleware\EnsureActiveStaff;
+use App\Http\Middleware\EnsureStaffBrowserSession;
 use Illuminate\Support\Facades\Route;
 
 foreach ([
@@ -13,7 +15,8 @@ foreach ([
 }
 
 // Legacy unversioned alias. Remove once clients move to /v1/staff/auth/details.
-Route::get('/user', [StaffAuthController::class, 'me'])->middleware('staff');
+Route::get('/user', [StaffAuthController::class, 'me'])
+    ->middleware([EnsureStaffBrowserSession::class, 'auth:sanctum', EnsureActiveStaff::class]);
 
 require __DIR__.'/public.php';
 require __DIR__.'/staff-auth.php';

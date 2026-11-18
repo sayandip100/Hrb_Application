@@ -15,6 +15,9 @@ use App\Http\Controllers\Api\V1\RecruitmentController;
 use App\Http\Controllers\Api\V1\StaffCandidateActionController;
 use App\Http\Controllers\Api\V1\StaffCandidateApplicationController;
 use App\Http\Controllers\Api\V1\SubdivisionController;
+use App\Http\Middleware\EnsureActiveStaff;
+use App\Http\Middleware\EnsureStaffBrowserSession;
+use App\Http\Middleware\RequireStaffRole;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -35,7 +38,7 @@ $masterData = function (
     array $only = ['index', 'store', 'show', 'update', 'lock', 'unlock'],
 ): void {
     Route::prefix("v1/master-data/{$slug}")->name("master-data.{$slug}.")
-        ->middleware('role:1')
+        ->middleware(RequireStaffRole::class.':1')
         ->group(function () use ($controller, $param, $extra, $only): void {
             foreach ($extra as $uri => $method) {
                 Route::get("/{$uri}", [$controller, $method])->name($uri);
@@ -50,7 +53,9 @@ $masterData = function (
         });
 };
 
-Route::middleware('staff')->group(function () use ($masterData): void {
+$staffMiddleware = [EnsureStaffBrowserSession::class, 'auth:sanctum', EnsureActiveStaff::class];
+
+Route::middleware($staffMiddleware)->group(function () use ($masterData): void {
 
     $masterData('recruitments', RecruitmentController::class, 'recruitment',
         only: ['index', 'store', 'lock', 'unlock']);
@@ -77,7 +82,7 @@ Route::middleware('staff')->group(function () use ($masterData): void {
     |----------------------------------------------------------------------
     */
     Route::prefix('v1/advertisements')->name('advertisements.')
-        ->middleware('role:1')
+        ->middleware(RequireStaffRole::class.':1')
         ->group(function (): void {
             $c = AdvertisementController::class;
 
@@ -99,7 +104,7 @@ Route::middleware('staff')->group(function () use ($masterData): void {
         });
 
     Route::prefix('v1/advertisement-resubmissions')->name('advertisement-resubmissions.')
-        ->middleware('role:1')
+        ->middleware(RequireStaffRole::class.':1')
         ->group(function (): void {
             $c = AdvertisementResubmissionController::class;
 
@@ -121,7 +126,7 @@ Route::middleware('staff')->group(function () use ($masterData): void {
     | policy ability and audit event each; reject also idempotent).
     */
     Route::prefix('v1/candidates/applications')->name('candidates.applications.')
-        ->middleware('role:1')
+        ->middleware(RequireStaffRole::class.':1')
         ->group(function (): void {
             Route::get('/form-options', [StaffCandidateApplicationController::class, 'formOptions'])->name('form-options');
             Route::get('/', [StaffCandidateApplicationController::class, 'index'])->name('index');

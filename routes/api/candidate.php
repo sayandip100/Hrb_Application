@@ -4,6 +4,7 @@
 
 use App\Http\Controllers\Api\V1\CandidateApplicationController;
 use App\Http\Controllers\Api\V1\CandidateAuthController;
+use App\Http\Middleware\EnsureActiveCandidate;
 use App\Http\Middleware\EnsureStaffBrowserSession;
 use Illuminate\Support\Facades\Route;
 
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Route;
 | no longer share the 20/min bucket with login/register.
 */
 Route::prefix('v1/candidate/auth')->name('candidate.auth.')
-    ->middleware(EnsureStaffBrowserSession::class) // TODO: rename to EnsureBrowserSession
+    ->middleware(EnsureStaffBrowserSession::class) 
     ->group(function (): void {
         $c = CandidateAuthController::class;
 
@@ -27,7 +28,7 @@ Route::prefix('v1/candidate/auth')->name('candidate.auth.')
             ->middleware('throttle:20,1')->name('login');
 
         Route::get('/me', [$c, 'me'])
-            ->middleware(['auth:candidate', 'active.candidate'])->name('me');
+            ->middleware(['auth:candidate', EnsureActiveCandidate::class])->name('me');
         Route::post('/logout', [$c, 'logout'])
             ->middleware('auth:candidate')->name('logout');
     });
@@ -36,10 +37,10 @@ Route::prefix('v1/candidate/auth')->name('candidate.auth.')
 |--------------------------------------------------------------------------
 | Candidate application
 |--------------------------------------------------------------------------
-| 'candidate' group = session check + auth:candidate + active candidate.
+| Session check + auth:candidate + active candidate.
 */
 Route::prefix('v1/candidate/application')->name('candidate.application.')
-    ->middleware('candidate')
+    ->middleware([EnsureStaffBrowserSession::class, 'auth:candidate', EnsureActiveCandidate::class])
     ->group(function (): void {
         $c = CandidateApplicationController::class;
 
